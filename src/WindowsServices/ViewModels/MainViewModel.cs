@@ -13,7 +13,7 @@ namespace WindowsServices.ViewModels;
 
 public class MainViewModel : ObservableRecipient
 {
-    private const int TimeoutMs = 500;
+    private const int TimeoutMs = 3000;
 
     private readonly ILogger _logger = Log.ForContext(typeof(MainViewModel));
 
@@ -25,7 +25,6 @@ public class MainViewModel : ObservableRecipient
     {
         WindowsServices = new ObservableCollection<WindowsServiceModel>();
         GetServices();
-        SelectedService = WindowsServices.FirstOrDefault();
     }
 
     public WindowsServiceModel SelectedService
@@ -47,7 +46,7 @@ public class MainViewModel : ObservableRecipient
     {
         return existingCommand ??= new RelayCommand(execute, canExecute);
     }
-
+    
     private void GetServices()
     {
         try
@@ -65,8 +64,8 @@ public class MainViewModel : ObservableRecipient
 
                 using (var searcher = new ManagementObjectSearcher(query))
                 {
-                    var all = searcher.Get();
-                    foreach (ManagementObject obj in all)
+                    var collection = searcher.Get();
+                    foreach (var obj in collection)
                     {
                         userName = obj["startname"]?.ToString();
                     }
@@ -81,6 +80,8 @@ public class MainViewModel : ObservableRecipient
                 };
                 WindowsServices.Add(item);
             }
+
+            SelectedService = WindowsServices.FirstOrDefault();
         }
         catch (Exception ex)
         {
@@ -108,6 +109,8 @@ public class MainViewModel : ObservableRecipient
             catch (InvalidOperationException ex)
             {
                 _logger.Error(ex, "Could not start the service {@name}", SelectedService.Name);
+                MessageBox.Show($"Administrator rights are required to perform the action.", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
         else
@@ -137,6 +140,8 @@ public class MainViewModel : ObservableRecipient
             catch (InvalidOperationException ex)
             {
                 _logger.Error(ex, "Could not stop the service {@name}", SelectedService.Name);
+                MessageBox.Show($"Administrator rights are required to perform the action.", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
         else
