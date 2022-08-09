@@ -2,7 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
-namespace WindowsServices
+namespace WindowsServices.Views
 {
     /// <summary>
     /// Interaction logic for App.xaml
