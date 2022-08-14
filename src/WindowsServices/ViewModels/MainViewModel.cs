@@ -3,7 +3,9 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Management;
 using System.ServiceProcess;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -13,18 +15,24 @@ namespace WindowsServices.ViewModels;
 
 public class MainViewModel : ObservableRecipient
 {
-    private const int TimeoutMs = 3000;
-
+    private const int TimerIntervalMs = 1000;
+    
     private readonly ILogger _logger = Log.ForContext(typeof(MainViewModel));
+    private readonly DispatcherTimer _timer;
 
-    private RelayCommand _startServiceCommand;
-    private RelayCommand _stopServiceCommand;
+    private AsyncRelayCommand _getServicesCommand;
+    private AsyncRelayCommand _startServiceCommand;
+    private AsyncRelayCommand _stopServiceCommand;
     private WindowsServiceModel _selectedService;
 
     public MainViewModel()
     {
         WindowsServices = new ObservableCollection<WindowsServiceModel>();
-        GetServices();
+        
+        _timer = new DispatcherTimer();
+        _timer.Interval = TimeSpan.FromMilliseconds(TimerIntervalMs);
+        _timer.Tick += DispatcherTimer_Tick;
+        _timer.Start();
     }
 
     public WindowsServiceModel SelectedService
@@ -39,19 +47,25 @@ public class MainViewModel : ObservableRecipient
 
     public ObservableCollection<WindowsServiceModel> WindowsServices { get; }
 
-    public RelayCommand StartServiceCommand => GetCommand(ref _startServiceCommand, StartService, () => true);
-    public RelayCommand StopServiceCommand => GetCommand(ref _stopServiceCommand, StopService, () => true);
+    public AsyncRelayCommand GetServicesCommand => GetAsyncCommand(ref _getServicesCommand, GetServices, () => true);
+    public AsyncRelayCommand StartServiceCommand => GetAsyncCommand(ref _startServiceCommand, StartService, () => true);
+    public AsyncRelayCommand StopServiceCommand => GetAsyncCommand(ref _stopServiceCommand, StopService, () => true);
 
     private static RelayCommand GetCommand(ref RelayCommand existingCommand, Action execute, Func<bool> canExecute)
     {
         return existingCommand ??= new RelayCommand(execute, canExecute);
+    }
+
+    private static AsyncRelayCommand GetAsyncCommand(ref AsyncRelayCommand existingCommand, Action execute, Func<bool> canExecute)
+    {
+        return existingCommand ??= new AsyncRelayCommand(() => Task.Run(execute), canExecute);
     }
     
     private void GetServices()
     {
         try
         {
-            WindowsServices.Clear();
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => WindowsServices.Clear()));
 
             ServiceController[] services = ServiceController.GetServices();
             _logger.Information("{@count} Windows Services found.", services.Length);
@@ -78,7 +92,7 @@ public class MainViewModel : ObservableRecipient
                     Status = service.Status.ToString(),
                     Account = userName
                 };
-                WindowsServices.Add(item);
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => WindowsServices.Add(item)));
             }
 
             SelectedService = WindowsServices.FirstOrDefault();
@@ -101,9 +115,8 @@ public class MainViewModel : ObservableRecipient
         {
             try
             {
-                var timeout = TimeSpan.FromMilliseconds(TimeoutMs);
                 service.Start();
-                service.WaitForStatus(ServiceControllerStatus.Running, timeout);
+                service.WaitForStatus(ServiceControllerStatus.Running);
                 SelectedService.Status = service.Status.ToString();
             }
             catch (InvalidOperationException ex)
@@ -132,9 +145,8 @@ public class MainViewModel : ObservableRecipient
         {
             try
             {
-                var timeout = TimeSpan.FromMilliseconds(TimeoutMs);
                 service.Stop();
-                service.WaitForStatus(ServiceControllerStatus.Stopped, timeout);
+                service.WaitForStatus(ServiceControllerStatus.Stopped);
                 SelectedService.Status = service.Status.ToString();
             }
             catch (InvalidOperationException ex)
@@ -148,6 +160,19 @@ public class MainViewModel : ObservableRecipient
         {
             MessageBox.Show($"Service {SelectedService.Name} is already stopped.", "Information", MessageBoxButton.OK,
                 MessageBoxImage.Information);
+        }
+    }
+
+    private void DispatcherTimer_Tick(object sender, EventArgs e)
+    {
+        foreach (var windowsService in WindowsServices)
+        {
+            var serviceController = new ServiceController(windowsService.Name);
+            var status = serviceController.Status.ToString();
+            if (status != windowsService.Status)
+            {
+                SelectedService.Status = status;
+            }
         }
     }
 }
